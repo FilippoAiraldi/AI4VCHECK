@@ -21,6 +21,9 @@ def find_duplicates(image_dir: str) -> None:
     for fn in Path(image_dir).rglob("*.*"):
         assert fn not in hashes, f"Duplicate filename `{fn}` found."
 
+        if fn.suffix == ".txt":
+            continue
+
         # open image
         img = cv.imread(fn, cv.IMREAD_GRAYSCALE)
         if img is None:
