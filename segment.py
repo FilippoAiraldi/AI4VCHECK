@@ -3,6 +3,7 @@ import sys
 from typing import Optional
 
 import cv2 as cv
+import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -205,28 +206,36 @@ if __name__ == "__main__":
     print(path, "- viability Index:", viability)
 
     # plot image
-    import matplotlib.pyplot as plt
-
-    tb_color = [255, 0, 0]
-    ring_color = [0, 0, 255]
+    tb_color = [0, 0, 0]
+    ring_color = [255, 0, 0]
     if img.shape[2] == 4:
         tb_color.append(255)
         ring_color.append(255)
     thickness = min(img.shape[:2]) * 3 // 1000
     for i in range(len(tb_contours)):
-        cv.drawContours(img, tb_contours, i, tb_color, thickness, cv.LINE_AA)
+        cv.drawContours(img, tb_contours, i, tb_color, thickness * 2 // 3, cv.LINE_AA)
     x, y, r = calculate_enclosing_circle(gray_img)
     cv.circle(img, (x, y), r // 4, ring_color, thickness, cv.LINE_AA)
     cv.circle(img, (x, y), r // 2, ring_color, thickness, cv.LINE_AA)
     cv.circle(img, (x, y), r * 3 // 4, ring_color, thickness, cv.LINE_AA)
     cv.circle(img, (x, y), r, ring_color, thickness, cv.LINE_AA)
     cv.circle(img, (x, y), r // 100, ring_color, cv.FILLED, cv.LINE_AA)
+    cv.putText(
+        img,
+        "center",
+        (x - r // 10, y - r // 20),
+        cv.FONT_HERSHEY_SIMPLEX,
+        thickness * 0.5,
+        (0, 0, 0, 255),
+        thickness,
+        cv.LINE_AA,
+    )
     plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
     plt.axis("off")
     plt.show()
 
     # save segmented image
     base_name, ext = os.path.splitext(os.path.basename(path))
-    new_base_name = base_name + " (segmented)"
+    new_base_name = base_name + f" VI {viability}"
     new_path = os.path.join(os.path.dirname(path), new_base_name + ext)
     cv.imwrite(new_path, img)
