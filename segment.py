@@ -8,13 +8,46 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-class LoadFromJson(argparse.Action):
-    """Thanks to https://stackoverflow.com/a/27434050/19648688."""
+def parse_args() -> argparse.Namespace:
+    """Parses the command-line arguments for the script."""
+    parser = argparse.ArgumentParser(
+        description="VCHECK segmentation",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("img", type=str, help="Filepath of image to segment")
+    parser.add_argument("--clahe", type=bool, default=False)
+    parser.add_argument(
+        "--adaptive-thres-size",
+        type=int,
+        default=101,
+        help="Adaptive thresholding neighborhood size",
+    )
+    parser.add_argument(
+        "--adaptive-thres-const",
+        type=float,
+        default=3.0,
+        help="Adaptive thresholding constant",
+    )
+    parser.add_argument(
+        "--args-json",
+        type=str,
+        default="",
+        help="Json with arguments to be loaded",
+    )
+    args = parser.parse_args()
 
-    def __call__(self, parser, namespace, values, option_string=None) -> None:
-        data = json.load(values)
-        for k, v in data.items():
-            setattr(namespace, k, v)
+    # load arguments from json - if not provided, see if there is a file named args.json
+    args.img = Path(args.img)
+    if not args.args_json:
+        args_json = args.img.with_name("args.json")
+        if args_json.is_file():
+            args.args_json = args_json
+    if args.args_json:
+        with open(args.args_json, "r") as file:
+            data = json.load(file)
+            for key, value in data.items():
+                setattr(args, key, value)
+    return args
 
 
 def find_contours_TB_pixels(
@@ -260,39 +293,13 @@ def calculate_mortality_per_circle(
 
 
 if __name__ == "__main__":
-    # parse arguments
-    parser = argparse.ArgumentParser(
-        description="VCHECK segmentation",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument("img", type=str, help="Filepath of image to segment")
-    parser.add_argument("--clahe", type=bool, default=False)
-    parser.add_argument(
-        "--adaptive-thres-size",
-        type=int,
-        default=101,
-        help="Adaptive thresholding neighborhood size",
-    )
-    parser.add_argument(
-        "--adaptive-thres-const",
-        type=float,
-        default=3.0,
-        help="Adaptive thresholding constant",
-    )
-    parser.add_argument(
-        "--args-json",
-        type=open,
-        default=None,
-        action=LoadFromJson,
-        help="Json with arguments to be loaded",
-    )
-    args = parser.parse_args()
+    args = parse_args()
 
     # read image
-    path = Path(args.img)
-    img = cv.imread(path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
+    img_path = args.img
+    img = cv.imread(img_path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
     if img is None:
-        print("Could not open or find the image:", path)
+        print("Could not open or find the image:", img_path)
         exit(1)
 
     # convert to grayscale and segment
@@ -348,7 +355,7 @@ if __name__ == "__main__":
         np.subtract(center, (r / 10, r / 20)).astype(int),
         cv.FONT_HERSHEY_SIMPLEX,
         thickness * 0.5,
-        (0, 0, 0, 255),
+        ring_color,
         thickness,
         cv.LINE_AA,
     )
@@ -357,7 +364,7 @@ if __name__ == "__main__":
     plt.show()
 
     # save segmented image and mortality data
-    new_path = path.with_stem(f"{path.stem} (segmented)")
+    new_path = img_path.with_stem(f"{img_path.stem} (segmented)")
     cv.imwrite(new_path, img)
-    with open(path.with_name(f"{path.stem} (mortalities).csv"), "w") as file:
+    with open(img_path.with_name(f"{img_path.stem} (mortalities).csv"), "w") as file:
         file.writelines(filetext)
