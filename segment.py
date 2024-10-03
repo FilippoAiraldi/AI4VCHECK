@@ -284,7 +284,7 @@ if __name__ == "__main__":
     cv.putText(
         img,
         "center",
-        np.subtract(center, (r // 10, r // 20)),
+        np.subtract(center, (r / 10, r / 20)).astype(int),
         cv.FONT_HERSHEY_SIMPLEX,
         thickness * 0.5,
         (0, 0, 0, 255),
@@ -300,6 +300,6 @@ if __name__ == "__main__":
     cv.imwrite(new_path, img)
     filelines = ["ring,dead,all,mortality"]
     for i, (dead, all) in enumerate(mortalities, start=1):
-        filelines.append(f"{i + 1}/{num_circles},{dead},{all},{dead / all}")
+        filelines.append(f"{i}/{num_circles},{dead},{all},{dead / all}")
     with open(path.with_suffix(".csv"), "w") as file:
-        file.writelines(filelines)
+        file.writelines("\n".join(filelines))
