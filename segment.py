@@ -161,7 +161,7 @@ def find_contours_TB_pixels(
 
 def calculate_enclosing_circle(
     img: np.ndarray, gray_img: Optional[np.ndarray] = None
-) -> tuple[int, int, int]:
+) -> tuple[np.ndarray, float]:
     """Computes the circle that encloses the corneal segmented image.
 
     Parameters
@@ -176,17 +176,15 @@ def calculate_enclosing_circle(
 
     Returns
     -------
-    tuple of 3 ints
-        The x, y, and radius of the circle that encloses the corneal segmented image.
+    center and radiius
+        The center and radius of the circle that encloses the corneal segmented image.
     """
     has_four_channels = img.shape[2] == 4
     if has_four_channels:
         _, thresholded_img = cv.threshold(img[..., 3], 0, 255, cv.THRESH_BINARY)
     else:
         if gray_img is None:
-            gray_img = cv.cvtColor(
-                img, cv.COLOR_BGRA2GRAY if has_four_channels else cv.COLOR_BGR2GRAY
-            )
+            gray_img = cv.cvtColor(cv.COLOR_BGR2GRAY)
         blurred_image = cv.GaussianBlur(gray_img, (71, 71), 11)
         _, thresholded_img = cv.threshold(
             blurred_image, 50, 255, cv.THRESH_BINARY | cv.THRESH_OTSU
@@ -197,13 +195,16 @@ def calculate_enclosing_circle(
     cnt = cnts[0]
 
     if False:
-        (x, y), r = cv.minEnclosingCircle(cnt)
+        center, r = cv.minEnclosingCircle(cnt)
+        center = np.asarray(center)
     else:
         M = cv.moments(cnt)
         x = M["m10"] / M["m00"]
         y = M["m01"] / M["m00"]
-        r = np.mean([np.linalg.norm(np.subtract(p, (x, y))) for p in cnt.squeeze(1)])
-    return int(x), int(y), int(r)
+        center = np.asarray((x, y))
+        r = np.mean([np.linalg.norm(p - center) for p in cnt.squeeze(1)])
+    return center, r
+
 
 
 if __name__ == "__main__":
@@ -222,7 +223,9 @@ if __name__ == "__main__":
         img, cv.COLOR_BGRA2GRAY if img.shape[2] == 4 else cv.COLOR_BGR2GRAY
     )
     tb_contours, tb_positive_mask, viability = find_contours_TB_pixels(img, gray_img)
-    print(path, "- viability Index:", viability)
+    num_circles = 5
+    center, r = calculate_enclosing_circle(img, gray_img)
+    center = center.astype(int)
 
     # plot image
     tb_color = [0, 0, 0]
@@ -233,16 +236,16 @@ if __name__ == "__main__":
     thickness = min(img.shape[:2]) * 3 // 1000
     for i in range(len(tb_contours)):
         cv.drawContours(img, tb_contours, i, tb_color, thickness * 2 // 3, cv.LINE_AA)
-    x, y, r = calculate_enclosing_circle(img, gray_img)
-    cv.circle(img, (x, y), r // 4, ring_color, thickness, cv.LINE_AA)
-    cv.circle(img, (x, y), r // 2, ring_color, thickness, cv.LINE_AA)
-    cv.circle(img, (x, y), r * 3 // 4, ring_color, thickness, cv.LINE_AA)
-    cv.circle(img, (x, y), r, ring_color, thickness, cv.LINE_AA)
-    cv.circle(img, (x, y), r // 100, ring_color, cv.FILLED, cv.LINE_AA)
+
+    for frac in range(1, num_circles + 1):
+        cv.circle(
+            img, center, int(r / num_circles * frac), ring_color, thickness, cv.LINE_AA
+        )
+    cv.circle(img, center, int(r / 100), ring_color, cv.FILLED, cv.LINE_AA)
     cv.putText(
         img,
         "center",
-        (x - r // 10, y - r // 20),
+        np.subtract(center, (r // 10, r // 20)),
         cv.FONT_HERSHEY_SIMPLEX,
         thickness * 0.5,
         (0, 0, 0, 255),
