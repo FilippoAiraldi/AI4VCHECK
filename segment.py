@@ -1,4 +1,5 @@
-import sys
+import argparse
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -7,8 +8,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+class LoadFromJson(argparse.Action):
+    """Thanks to https://stackoverflow.com/a/27434050/19648688."""
+
+    def __call__(self, parser, namespace, values, option_string=None) -> None:
+        data = json.load(values)
+        for k, v in data.items():
+            setattr(namespace, k, v)
+
+
 def find_contours_TB_pixels(
-    img: np.ndarray, gray_img: Optional[np.ndarray] = None
+    img: np.ndarray,
+    gray_img: Optional[np.ndarray] = None,
+    clahe: bool = False,
+    adaptive_thres_size: int = 101,
+    adaptive_thres_const: float = 3.0,
 ) -> tuple[np.ndarray, np.ndarray, tuple[np.ndarray, ...]]:
     """Finds the contours of the Trypan Blue-stained (TB) regions in the corneal image
     (with the cornea already segmented out) via the Watershed algorithm.
@@ -22,6 +36,14 @@ def find_contours_TB_pixels(
     gray_img : np.ndarray, optional
         The grayscale version of the image. If not provided, it is computed by
         converting the image to grayscale.
+    clahe : bool, optional
+        Whether to perform Contrast Limited Adaptive Histogram Equalization (CLAHE) on
+        the image before segmenting it.
+    adaptive_thres_size : int, optional
+        Size of the adaptive thresholding neighborhood. It must be an odd integer.
+    adaptive_thres_const : float, optional
+        Constant subtracted from the mean or weighted mean to compute the threshold
+        value.
 
     Returns
     -------
@@ -43,7 +65,7 @@ def find_contours_TB_pixels(
 
     # convert to grayscale, remove noise and smooth image, and apply a first threshold
     # to coarsely extract all suspected TB-positive pixels
-    if False:  # NOTE: tunable (!!!) - bool: perform CLAHE or not
+    if clahe:  # NOTE: tunable (!!!) - bool: perform CLAHE or not
         size = min(img.shape[:2]) // 100
         clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(size, size))
         gray_img = clahe.apply(gray_img)
@@ -57,8 +79,8 @@ def find_contours_TB_pixels(
         255,
         cv.ADAPTIVE_THRESH_MEAN_C,
         cv.THRESH_BINARY_INV,
-        101,  # NOTE: tunable (!!) - odd integer
-        3.0,  # NOTE: tunable (!!!) - float
+        adaptive_thres_size,  # NOTE: tunable (!!) - odd integer
+        adaptive_thres_const,  # NOTE: tunable (!!!) - float
     )
     # _, axs = plt.subplots(1, 2, constrained_layout=True, sharex=True, sharey=True)
     # axs[0].imshow(blurred_img, cmap="gray")
@@ -238,11 +260,36 @@ def calculate_mortality_per_circle(
 
 
 if __name__ == "__main__":
-    # load image
-    if len(sys.argv) != 2:
-        print("Usage: python segment.py <path_to_image>")
-        exit(1)
-    path = Path(sys.argv[1])
+    # parse arguments
+    parser = argparse.ArgumentParser(
+        description="VCHECK segmentation",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("img", type=str, help="Filepath of image to segment")
+    parser.add_argument("--clahe", type=bool, default=False)
+    parser.add_argument(
+        "--adaptive-thres-size",
+        type=int,
+        default=101,
+        help="Adaptive thresholding neighborhood size",
+    )
+    parser.add_argument(
+        "--adaptive-thres-const",
+        type=float,
+        default=3.0,
+        help="Adaptive thresholding constant",
+    )
+    parser.add_argument(
+        "--args-json",
+        type=open,
+        default=None,
+        action=LoadFromJson,
+        help="Json with arguments to be loaded",
+    )
+    args = parser.parse_args()
+
+    # read image
+    path = Path(args.img)
     img = cv.imread(path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
     if img is None:
         print("Could not open or find the image:", path)
@@ -252,7 +299,13 @@ if __name__ == "__main__":
     gray_img = cv.cvtColor(
         img, cv.COLOR_BGRA2GRAY if img.shape[2] == 4 else cv.COLOR_BGR2GRAY
     )
-    corneal_mask, tb_positive_mask, tb_contours = find_contours_TB_pixels(img, gray_img)
+    corneal_mask, tb_positive_mask, tb_contours = find_contours_TB_pixels(
+        img,
+        gray_img,
+        args.clahe,
+        args.adaptive_thres_size,
+        args.adaptive_thres_const,
+    )
 
     # calculate mortality per enclosing circles
     num_circles = 5
