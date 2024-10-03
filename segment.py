@@ -9,7 +9,7 @@ import numpy as np
 
 def find_contours_TB_pixels(
     img: np.ndarray, gray_img: Optional[np.ndarray] = None
-) -> tuple[tuple[np.ndarray, ...], np.ndarray, float]:
+) -> tuple[np.ndarray, np.ndarray, tuple[np.ndarray, ...]]:
     """Finds the contours of the Trypan Blue-stained (TB) regions in the corneal image
     (with the cornea already segmented out) via the Watershed algorithm.
 
@@ -25,11 +25,10 @@ def find_contours_TB_pixels(
 
     Returns
     -------
-    Contours, mask, and index
-        The watershed-segmented contours of the regions that are believed to be stained
-        by the TB dye (as a tuple of arrays), the TB-positive mask image (as an array),
-        and the viability index as the ratio of number of healthy pixels
-        (i.e., TB-negative) to the total number of pixels in the cornea (a float).
+    corneal mask, and TB-positive mask and contours
+        The mask of the corneal pixeles (as an array), the TB-positive mask (as an
+        array) of the regions that are believed to be stained by the TB dye and the
+        watershed-segmented contours of these regions (as a tuple of arrays).
     """
     # first of all, convert to grayscale and compute the mask of the cornea (i.e.,
     # separate pixels within the cornea from pixels outside of it)
@@ -138,7 +137,7 @@ def find_contours_TB_pixels(
 
     # finally, find all the contours (hierarchy information is disregarded)
     corneal_contours_mask = cv.bitwise_and(contours_mask, corneal_mask)
-    contours, _ = cv.findContours(
+    tb_contours, _ = cv.findContours(
         corneal_contours_mask, cv.RETR_LIST, cv.CHAIN_APPROX_NONE
     )
 
@@ -146,17 +145,14 @@ def find_contours_TB_pixels(
     # we believe to be positive to the TB stain. Just the make sure, set once again to
     # zero all the pixels that are outside the cornea
     tb_positive_mask = np.zeros(img.shape[:2], np.uint8)
-    for i in range(len(contours)):
-        cv.drawContours(tb_positive_mask, contours, i, 255, cv.FILLED)
+    for i in range(len(tb_contours)):
+        cv.drawContours(tb_positive_mask, tb_contours, i, 255, cv.FILLED)
     tb_positive_mask = cv.bitwise_and(tb_positive_mask, corneal_mask)
     # img[tb_positive_mask > 0] = (255, 0, 0, 255) if has_four_channels else (255, 0, 0)
     # plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
     # plt.axis("off")
     # plt.show()
-
-    # lastly, compute the viability index
-    viability = 1 - cv.countNonZero(tb_positive_mask) / cv.countNonZero(corneal_mask)
-    return contours, tb_positive_mask, viability
+    return corneal_mask, tb_positive_mask, tb_contours
 
 
 def calculate_enclosing_circle(
@@ -222,7 +218,7 @@ if __name__ == "__main__":
     gray_img = cv.cvtColor(
         img, cv.COLOR_BGRA2GRAY if img.shape[2] == 4 else cv.COLOR_BGR2GRAY
     )
-    tb_contours, tb_positive_mask, viability = find_contours_TB_pixels(img, gray_img)
+    corneal_mask, tb_positive_mask, tb_contours = find_contours_TB_pixels(img, gray_img)
     num_circles = 5
     center, r = calculate_enclosing_circle(img, gray_img)
     center = center.astype(int)
