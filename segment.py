@@ -8,9 +8,8 @@ import numpy as np
 
 
 def find_contours_TB_pixels(
-    img: np.ndarray,
-    gray_img: Optional[np.ndarray] = None,
-) -> tuple[tuple[np.ndarray], np.ndarray, float, tuple]:
+    img: np.ndarray, gray_img: Optional[np.ndarray] = None
+) -> tuple[tuple[np.ndarray, ...], np.ndarray, float]:
     """Finds the contours of the Trypan Blue-stained (TB) regions in the corneal image
     (with the cornea already segmented out) via the Watershed algorithm.
 
@@ -162,28 +161,43 @@ def find_contours_TB_pixels(
     return contours, tb_positive_mask, viability
 
 
-def calculate_enclosing_circle(gray_img: np.ndarray) -> tuple[int, int, int]:
+def calculate_enclosing_circle(
+    img: np.ndarray, gray_img: Optional[np.ndarray] = None
+) -> tuple[int, int, int]:
     """Computes the circle that encloses the corneal segmented image.
 
     Parameters
     ----------
+    img : np.ndarray
+        A 3- or 4-channel image containing the cornea. If the image has 4 channels,
+        areas outside of the cornea should be transparent. If the image has 3 channels,
+        areas outside of the cornea should be black.
     gray_img : np.ndarray, optional
-        The grayscale version of the corneal segmented image.
+        The grayscale version of the image. If not provided, it is computed by
+        converting the image to grayscale.
 
     Returns
     -------
     tuple of 3 ints
         The x, y, and radius of the circle that encloses the corneal segmented image.
     """
-    # extract the contours in the image
-    blurred_image = cv.GaussianBlur(gray_img, (71, 71), 11)
-    _, thresholded_img = cv.threshold(
-        blurred_image, 50, 255, cv.THRESH_BINARY | cv.THRESH_OTSU
-    )
+    has_four_channels = img.shape[2] == 4
+    if has_four_channels:
+        _, thresholded_img = cv.threshold(img[..., 3], 0, 255, cv.THRESH_BINARY)
+    else:
+        if gray_img is None:
+            gray_img = cv.cvtColor(
+                img, cv.COLOR_BGRA2GRAY if has_four_channels else cv.COLOR_BGR2GRAY
+            )
+        blurred_image = cv.GaussianBlur(gray_img, (71, 71), 11)
+        _, thresholded_img = cv.threshold(
+            blurred_image, 50, 255, cv.THRESH_BINARY | cv.THRESH_OTSU
+        )
+
     cnts, _ = cv.findContours(thresholded_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     assert len(cnts) == 1, "Expected only one contour."
-
-    (x, y), r = cv.minEnclosingCircle(cnts[0])
+    cnt = cnts[0]
+    (x, y), r = cv.minEnclosingCircle(cnt)
     return int(x), int(y), int(r)
 
 
@@ -214,7 +228,7 @@ if __name__ == "__main__":
     thickness = min(img.shape[:2]) * 3 // 1000
     for i in range(len(tb_contours)):
         cv.drawContours(img, tb_contours, i, tb_color, thickness * 2 // 3, cv.LINE_AA)
-    x, y, r = calculate_enclosing_circle(gray_img)
+    x, y, r = calculate_enclosing_circle(img, gray_img)
     cv.circle(img, (x, y), r // 4, ring_color, thickness, cv.LINE_AA)
     cv.circle(img, (x, y), r // 2, ring_color, thickness, cv.LINE_AA)
     cv.circle(img, (x, y), r * 3 // 4, ring_color, thickness, cv.LINE_AA)
