@@ -197,7 +197,14 @@ def calculate_enclosing_circle(
     cnts, _ = cv.findContours(thresholded_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     assert len(cnts) == 1, "Expected only one contour."
     cnt = cnts[0]
-    (x, y), r = cv.minEnclosingCircle(cnt)
+
+    if False:
+        (x, y), r = cv.minEnclosingCircle(cnt)
+    else:
+        M = cv.moments(cnt)
+        x = M["m10"] / M["m00"]
+        y = M["m01"] / M["m00"]
+        r = np.mean([np.linalg.norm(np.subtract(p, (x, y))) for p in cnt.squeeze(1)])
     return int(x), int(y), int(r)
 
 
