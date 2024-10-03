@@ -1,5 +1,5 @@
-import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 import cv2 as cv
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python segment.py <path_to_image>")
         exit(1)
-    path = sys.argv[1]
+    path = Path(sys.argv[1])
     img = cv.imread(path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
     if img is None:
         print("Could not open or find the image:", path)
@@ -253,8 +253,5 @@ if __name__ == "__main__":
     plt.axis("off")
     plt.show()
 
-    # save segmented image
-    base_name, ext = os.path.splitext(os.path.basename(path))
-    new_base_name = base_name + f" VI {viability}"
-    new_path = os.path.join(os.path.dirname(path), new_base_name + ext)
+    new_path = path.with_stem(f"{path.stem} VI {viability}")
     cv.imwrite(new_path, img)
