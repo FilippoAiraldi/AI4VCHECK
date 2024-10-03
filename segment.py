@@ -38,10 +38,8 @@ def find_contours_TB_pixels(
         gray_img = cv.cvtColor(
             img, cv.COLOR_BGRA2GRAY if has_four_channels else cv.COLOR_BGR2GRAY
         )
-    corneal_mask = np.where(
-        img[..., -1] > 0 if has_four_channels else gray_img > 0,
-        np.uint8(255),
-        np.uint8(0),
+    _, corneal_mask = cv.threshold(
+        img[..., 3] if has_four_channels else gray_img, 0, 255, cv.THRESH_BINARY
     )
 
     # convert to grayscale, remove noise and smooth image, and apply a first threshold
