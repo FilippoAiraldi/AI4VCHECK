@@ -195,9 +195,8 @@ def calculate_enclosing_circle(
         center = np.asarray(center)
     else:
         M = cv.moments(cnt)
-        x = M["m10"] / M["m00"]
-        y = M["m01"] / M["m00"]
-        center = np.asarray((x, y))
+        area = M["m00"]  # r = np.sqrt(area / np.pi) is not robust to outliers
+        center = np.asarray((M["m10"], M["m01"]), dtype=float) / area
         r = np.mean([np.linalg.norm(p - center) for p in cnt.squeeze(1)])
     return center, r
 
@@ -266,6 +265,15 @@ if __name__ == "__main__":
         for frac in range(1, num_circles + 1)
     ]
 
+    # print mortality data
+    filelines = ["ring,dead,all,mortality"]
+    for i, (dead, all) in enumerate(mortalities, start=1):
+        filelines.append(f"{i}/{num_circles},{dead},{all},{dead / all}")
+    dead_all, all = cv.countNonZero(tb_positive_mask), cv.countNonZero(corneal_mask)
+    filelines.append(f"whole,{dead_all},{all},{dead_all / all}")
+    filetext = "\n".join(filelines)
+    print(filetext)
+
     # plot image
     tb_color = [0, 0, 0]
     ring_color = [255, 0, 0]
@@ -298,8 +306,5 @@ if __name__ == "__main__":
     # save segmented image and mortality data
     new_path = path.with_stem(f"{path.stem} (segmented)")
     cv.imwrite(new_path, img)
-    filelines = ["ring,dead,all,mortality"]
-    for i, (dead, all) in enumerate(mortalities, start=1):
-        filelines.append(f"{i}/{num_circles},{dead},{all},{dead / all}")
-    with open(path.with_suffix(".csv"), "w") as file:
-        file.writelines("\n".join(filelines))
+    with open(path.with_name(f"{path.stem} (mortalities).csv"), "w") as file:
+        file.writelines(filetext)
