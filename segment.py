@@ -202,6 +202,41 @@ def calculate_enclosing_circle(
     return center, r
 
 
+def calculate_mortality_per_circle(
+    corneal_mask: np.ndarray,
+    tb_positive_mask: np.ndarray,
+    center: np.ndarray,
+    radius: int,
+) -> tuple[int, int]:
+    """Calculates the mortality of the cells within the circle defined by the given
+    center and radius.
+
+    Parameters
+    ----------
+    corneal_mask : np.ndarray
+        The mask of the corneal pixel in the original image.
+    tb_positive_mask : np.ndarray
+        The mask of the TB-positive corneal  pixels in the original image.
+    center : 2d array of ints
+        center of the circle for which the mortality is calculated.
+    radius : float
+        radius of the circle for which the mortality is calculated.
+
+    Returns
+    -------
+    tuple of 2 int
+        The mortality of the cells within the specified circle as the number of
+        TB-positive pixels and the number of all pixels. The mortality can be calculated
+        as the ratio of the two.
+    """
+    mask = np.zeros(img.shape[:2], np.uint8)
+    cv.circle(mask, center, radius, 255, cv.FILLED)
+    corneal_submask = cv.bitwise_and(mask, corneal_mask)
+    tb_positive_submask = cv.bitwise_and(mask, tb_positive_mask)
+    dead = cv.countNonZero(tb_positive_submask)
+    all = cv.countNonZero(corneal_submask)
+    return dead, all
+
 
 if __name__ == "__main__":
     # load image
@@ -219,9 +254,17 @@ if __name__ == "__main__":
         img, cv.COLOR_BGRA2GRAY if img.shape[2] == 4 else cv.COLOR_BGR2GRAY
     )
     corneal_mask, tb_positive_mask, tb_contours = find_contours_TB_pixels(img, gray_img)
+
+    # calculate mortality per enclosing circles
     num_circles = 5
     center, r = calculate_enclosing_circle(img, gray_img)
     center = center.astype(int)
+    mortalities = [
+        calculate_mortality_per_circle(
+            corneal_mask, tb_positive_mask, center, int(r / num_circles * frac)
+        )
+        for frac in range(1, num_circles + 1)
+    ]
 
     # plot image
     tb_color = [0, 0, 0]
@@ -252,5 +295,11 @@ if __name__ == "__main__":
     plt.axis("off")
     plt.show()
 
-    new_path = path.with_stem(f"{path.stem} VI {viability}")
+    # save segmented image and mortality data
+    new_path = path.with_stem(f"{path.stem} (segmented)")
     cv.imwrite(new_path, img)
+    filelines = ["ring,dead,all,mortality"]
+    for i, (dead, all) in enumerate(mortalities, start=1):
+        filelines.append(f"{i + 1}/{num_circles},{dead},{all},{dead / all}")
+    with open(path.with_suffix(".csv"), "w") as file:
+        file.writelines(filelines)
