@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Optional
 
 import cv2 as cv
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -15,20 +14,34 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("img", type=str, help="Filepath of image to segment")
-    parser.add_argument("--clahe", type=bool, default=False)
     parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prior to saving to disk",
+    )
+    group = parser.add_argument_group("Pre-processing options")
+    group.add_argument(
+        "--rotate",
+        type=float,
+        default=0.0,
+        help="Rotation of the original image in degrees",
+    )
+    group = parser.add_argument_group("Segmentation options")
+    group.add_argument("--clahe", type=bool, default=False)
+    group.add_argument(
         "--adaptive-thres-size",
         type=int,
         default=101,
         help="Adaptive thresholding neighborhood size",
     )
-    parser.add_argument(
+    group.add_argument(
         "--adaptive-thres-const",
         type=float,
         default=3.0,
         help="Adaptive thresholding constant",
     )
-    parser.add_argument(
+    group.add_argument(
         "--args-json",
         type=str,
         default="",
@@ -48,6 +61,32 @@ def parse_args() -> argparse.Namespace:
             for key, value in data.items():
                 setattr(args, key, value)
     return args
+
+
+def preprocess(img: np.ndarray, rotate: float) -> np.ndarray:
+    """Pre-processes the image prior to segmentation.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        A 3- or 4-channel image containing the cornea. If the image has 4 channels,
+        areas outside of the cornea should be transparent. If the image has 3 channels,
+        areas outside of the cornea should be black.
+    rotate : float
+        Rotation of the original image in degrees.
+
+    Returns
+    -------
+    np.ndarray
+        The pre-processed image.
+    """
+    if rotate != 0.0:
+        rows, cols = img.shape[:2]
+        M = cv.getRotationMatrix2D((cols / 2, rows / 2), rotate, 1.0)
+        img = cv.warpAffine(
+            img, M, (cols, rows), flags=cv.INTER_CUBIC, borderMode=cv.BORDER_TRANSPARENT
+        )
+    return img
 
 
 def find_contours_TB_pixels(
@@ -244,15 +283,10 @@ def calculate_enclosing_circle(
     cnts, _ = cv.findContours(thresholded_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     assert len(cnts) == 1, "Expected only one contour."
     cnt = cnts[0]
-
-    if False:
-        center, r = cv.minEnclosingCircle(cnt)
-        center = np.asarray(center)
-    else:
-        M = cv.moments(cnt)
-        area = M["m00"]  # r = np.sqrt(area / np.pi) is not robust to outliers
-        center = np.asarray((M["m10"], M["m01"]), dtype=float) / area
-        r = np.mean([np.linalg.norm(p - center) for p in cnt.squeeze(1)])
+    M = cv.moments(cnt)
+    area = M["m00"]  # r = np.sqrt(area / np.pi) is not robust to outliers
+    center = np.asarray((M["m10"], M["m01"]), dtype=float) / area
+    r = np.mean([np.linalg.norm(p - center) for p in cnt.squeeze(1)])
     return center, r
 
 
@@ -302,6 +336,9 @@ if __name__ == "__main__":
         print("Could not open or find the image:", img_path)
         exit(1)
 
+    # pre-process image
+    img = preprocess(img, args.rotate)
+
     # convert to grayscale and segment
     gray_img = cv.cvtColor(
         img, cv.COLOR_BGRA2GRAY if img.shape[2] == 4 else cv.COLOR_BGR2GRAY
@@ -332,9 +369,10 @@ if __name__ == "__main__":
     dead_all, all = cv.countNonZero(tb_positive_mask), cv.countNonZero(corneal_mask)
     filelines.append(f"whole,{dead_all},{all},{dead_all / all}")
     filetext = "\n".join(filelines)
-    print(filetext)
+    if not args.yes:
+        print(filetext)
 
-    # plot image
+    # create segmented image and plot it
     tb_color = [0, 0, 0]
     ring_color = [255, 0, 0]
     if img.shape[2] == 4:
@@ -359,12 +397,16 @@ if __name__ == "__main__":
         thickness,
         cv.LINE_AA,
     )
-    plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
-    plt.axis("off")
-    plt.show()
+    if not args.yes:
+        import matplotlib.pyplot as plt
+
+        plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
+        plt.axis("off")
+        plt.show()
 
     # save segmented image and mortality data
-    new_path = img_path.with_stem(f"{img_path.stem} (segmented)")
+    r = args.rotate
+    new_path = img_path.with_stem(f"{img_path.stem}{r} (segmented)")
     cv.imwrite(new_path, img)
-    with open(img_path.with_name(f"{img_path.stem} (mortalities).csv"), "w") as file:
+    with open(img_path.with_name(f"{img_path.stem}{r} (mortalities).csv"), "w") as file:
         file.writelines(filetext)
