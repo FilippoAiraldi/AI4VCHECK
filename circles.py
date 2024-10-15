@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 from typing import Optional
+from warnings import warn
 
 import cv2 as cv
 import numpy as np
@@ -37,8 +38,17 @@ def calculate_enclosing_circle(
         )
 
     cnts, _ = cv.findContours(thresholded_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    assert len(cnts) == 1, "Expected only one contour."
-    cnt = cnts[0]
+    if len(cnts) == 1:
+        cnt = cnts[0]
+    else:
+        warn(f"Expected only one contour, but found {len(cnts)}.")
+        cnt = max(cnts, key=cv.contourArea)
+        # import matplotlib.pyplot as plt
+        # cv.drawContours(img, [cnt], 0, [0, 255, 0, 255], 20)
+        # plt.imshow(img)
+        # plt.axis("off")
+        # plt.show()
+
     M = cv.moments(cnt)
     area = M["m00"]  # r = np.sqrt(area / np.pi) is not robust to outliers
     center = np.asarray((M["m10"], M["m01"]), dtype=float) / area

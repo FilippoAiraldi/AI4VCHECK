@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def preprocess(img: np.ndarray, rotate: float) -> np.ndarray:
+def preprocess(img: np.ndarray, angle: float) -> np.ndarray:
     """Pre-processes the image prior to segmentation.
 
     Parameters
@@ -74,7 +74,7 @@ def preprocess(img: np.ndarray, rotate: float) -> np.ndarray:
         A 3- or 4-channel image containing the cornea. If the image has 4 channels,
         areas outside of the cornea should be transparent. If the image has 3 channels,
         areas outside of the cornea should be black.
-    rotate : float
+    angle : float
         Rotation of the original image in degrees.
 
     Returns
@@ -82,13 +82,18 @@ def preprocess(img: np.ndarray, rotate: float) -> np.ndarray:
     np.ndarray
         The pre-processed image.
     """
-    if rotate != 0.0:
-        rows, cols = img.shape[:2]
-        M = cv.getRotationMatrix2D((cols / 2, rows / 2), rotate, 1.0)
-        img = cv.warpAffine(
-            img, M, (cols, rows), flags=cv.INTER_CUBIC, borderMode=cv.BORDER_TRANSPARENT
-        )
-    return img
+    if angle == 0.0:
+        return img
+    rows, cols = img.shape[:2]
+    center = (cols / 2, rows / 2)
+    M = cv.getRotationMatrix2D(center, angle, 1.0)
+    abs_cos = abs(M[0, 0])
+    abs_sin = abs(M[0, 1])
+    new_rows = int(rows * abs_sin + cols * abs_cos)
+    new_cols = int(rows * abs_cos + cols * abs_sin)
+    M[0, 2] += new_rows / 2 - center[0]
+    M[1, 2] += new_cols / 2 - center[1]
+    return cv.warpAffine(img, M, (new_rows, new_cols))
 
 
 def find_contours_TB_pixels(
