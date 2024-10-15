@@ -69,10 +69,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # read image
-    img_path = Path(args.img)
-    img = cv.imread(img_path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
+    path = Path(args.img)
+    img = cv.imread(path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
     if img is None:
-        print("Could not open or find the image:", img_path)
+        print("Could not open or find the image:", path)
         exit(1)
 
     # calculate the enclosing circle
@@ -86,4 +86,7 @@ if __name__ == "__main__":
     subimg = cv.bitwise_and(img, img, mask=mask)
 
     # save subimage to disk
-    cv.imwrite(img_path.with_stem(f"{img_path.stem} (circle {n})"), subimg)
+    circle_folder = path.parent / "circles"
+    circle_folder.mkdir(exist_ok=True)
+    new_path = circle_folder / f"{path.stem}-circle-{n}{path.suffix}"
+    cv.imwrite(new_path, subimg)

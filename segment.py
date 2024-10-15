@@ -296,14 +296,15 @@ if __name__ == "__main__":
     args = parse_args()
 
     # read image
-    img_path = args.img
-    img = cv.imread(img_path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
+    path = args.img
+    img = cv.imread(path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
     if img is None:
-        print("Could not open or find the image:", img_path)
+        print("Could not open or find the image:", path)
         exit(1)
 
     # pre-process image
-    img = preprocess(img, args.rotate)
+    rot = args.rotate
+    img = preprocess(img, rot)
 
     # convert to grayscale and segment
     gray_img = cv.cvtColor(
@@ -371,8 +372,12 @@ if __name__ == "__main__":
         plt.show()
 
     # save segmented image and mortality data
-    r = args.rotate
-    new_path = img_path.with_stem(f"{img_path.stem}{r} (segmented)")
+    segmentation_folder = path.parent / "segmented"
+    segmentation_folder.mkdir(exist_ok=True)
+    new_path = segmentation_folder / f"{path.stem}-segmented-at-{rot}{path.suffix}"
     cv.imwrite(new_path, img)
-    with open(img_path.with_name(f"{img_path.stem}{r} (mortalities).csv"), "w") as file:
+    mortality_folder = path.parent / "mortality"
+    mortality_folder.mkdir(exist_ok=True)
+    new_path = mortality_folder / f"{path.stem}-segmented-at-{rot}.csv"
+    with open(new_path, "w") as file:
         file.writelines(filetext)
