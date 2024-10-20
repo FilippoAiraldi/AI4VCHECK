@@ -6,63 +6,7 @@ from typing import Optional
 import cv2 as cv
 import numpy as np
 
-from circles import calculate_enclosing_circle
-
-
-def parse_args() -> argparse.Namespace:
-    """Parses the command-line arguments for the script."""
-    parser = argparse.ArgumentParser(
-        description="VCHECK segmentation",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument("img", type=str, help="Filepath of image to segment")
-    parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prior to saving to disk",
-    )
-    group = parser.add_argument_group("Pre-processing options")
-    group.add_argument(
-        "--rotate",
-        type=float,
-        default=0.0,
-        help="Rotation of the original image in degrees",
-    )
-    group = parser.add_argument_group("Segmentation options")
-    group.add_argument("--clahe", type=bool, default=False)
-    group.add_argument(
-        "--adaptive-thres-size",
-        type=int,
-        default=101,
-        help="Adaptive thresholding neighborhood size",
-    )
-    group.add_argument(
-        "--adaptive-thres-const",
-        type=float,
-        default=3.0,
-        help="Adaptive thresholding constant",
-    )
-    group.add_argument(
-        "--args-json",
-        type=str,
-        default="",
-        help="Json with arguments to be loaded",
-    )
-    args = parser.parse_args()
-
-    # load arguments from json - if not provided, see if there is a file named args.json
-    args.img = Path(args.img)
-    if not args.args_json:
-        args_json = args.img.with_name("args.json")
-        if args_json.is_file():
-            args.args_json = args_json
-    if args.args_json:
-        with open(args.args_json, "r") as file:
-            data = json.load(file)
-            for key, value in data.items():
-                setattr(args, key, value)
-    return args
+from circles import N_CIRCLES, calculate_enclosing_circle
 
 
 def preprocess(img: np.ndarray, angle: float) -> np.ndarray:
@@ -261,7 +205,7 @@ def calculate_mortality_per_circle(
     tb_positive_mask: np.ndarray,
     center: np.ndarray,
     radius: int,
-) -> tuple[int, int]:
+) -> tuple[int, int, np.ndarray]:
     """Calculates the mortality of the cells within the circle defined by the given
     center and radius.
 
@@ -278,10 +222,11 @@ def calculate_mortality_per_circle(
 
     Returns
     -------
-    tuple of 2 int
+    tuple of 2 int and rray
         The mortality of the cells within the specified circle as the number of
         TB-positive pixels and the number of all pixels. The mortality can be calculated
-        as the ratio of the two.
+        as the ratio of the two. The third returned element is the mask of the
+        TB-positive pixels in that circle.
     """
     mask = np.zeros(img.shape[:2], np.uint8)
     cv.circle(mask, center, radius, 255, cv.FILLED)
@@ -289,11 +234,88 @@ def calculate_mortality_per_circle(
     tb_positive_submask = cv.bitwise_and(mask, tb_positive_mask)
     dead = cv.countNonZero(tb_positive_submask)
     all = cv.countNonZero(corneal_submask)
-    return dead, all
+    return dead, all, tb_positive_submask
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    # parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="VCHECK segmentation",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("img", type=Path, help="Filepath of image to segment")
+    group = parser.add_argument_group("Pre-processing options")
+    group.add_argument(
+        "--rotate",
+        type=float,
+        default=0.0,
+        help="Rotation of the original image in degrees",
+    )
+    group = parser.add_argument_group("Segmentation options")
+    group.add_argument("--clahe", type=bool, default=False)
+    group.add_argument(
+        "--adaptive-thres-size",
+        type=int,
+        default=101,
+        help="Adaptive thresholding neighborhood size",
+    )
+    group.add_argument(
+        "--adaptive-thres-const",
+        type=float,
+        default=3.0,
+        help="Adaptive thresholding constant",
+    )
+    group.add_argument(
+        "--args-json",
+        type=str,
+        default="",
+        help="Json with arguments to be loaded",
+    )
+    group = parser.add_argument_group("Storing options")
+    group.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prior to saving to disk",
+    )
+    group.add_argument(
+        "--segmentation-folder",
+        type=str,
+        default="segmented",
+        help="Folder where to store the segmented image",
+    )
+    group.add_argument(
+        "--mortality-folder",
+        type=str,
+        default="mortality",
+        help="Folder where to store the mortality data",
+    )
+    group.add_argument(
+        "--save-masks",
+        choices=[*map(str, range(1, N_CIRCLES + 1)), "whole"],
+        default=[],
+        nargs="+",
+        type=str,
+        help="Circles (or whole image) for which to save the masks",
+    )
+    group.add_argument(
+        "--mask-folder",
+        type=str,
+        default="masks",
+        help="Folder where to store the mask results",
+    )
+    args = parser.parse_args()
+
+    # load arguments from json - if not provided, see if there is a file named args.json
+    if not args.args_json:
+        args_json = args.img.with_name("args.json")
+        if args_json.is_file():
+            args.args_json = args_json
+    if args.args_json:
+        with open(args.args_json, "r") as file:
+            data = json.load(file)
+            for key, value in data.items():
+                setattr(args, key, value)
 
     # read image
     path = args.img
@@ -319,22 +341,26 @@ if __name__ == "__main__":
     )
 
     # calculate mortality per enclosing circles
-    num_circles = 5
     center, r = calculate_enclosing_circle(img, gray_img)
     center = center.astype(int)
-    mortalities = [
-        calculate_mortality_per_circle(
-            corneal_mask, tb_positive_mask, center, int(r / num_circles * frac)
+    mortality_data = {
+        frac: calculate_mortality_per_circle(
+            corneal_mask, tb_positive_mask, center, int(r / N_CIRCLES * frac)
         )
-        for frac in range(1, num_circles + 1)
-    ]
+        for frac in range(1, N_CIRCLES + 1)
+    }
+    mortality_data["whole"] = (
+        cv.countNonZero(tb_positive_mask),
+        cv.countNonZero(corneal_mask),
+        tb_positive_mask,
+    )
 
     # print mortality data
     filelines = ["ring,dead,all,mortality"]
-    for i, (dead, all) in enumerate(mortalities, start=1):
-        filelines.append(f"{i}/{num_circles},{dead},{all},{dead / all}")
-    dead_all, all = cv.countNonZero(tb_positive_mask), cv.countNonZero(corneal_mask)
-    filelines.append(f"whole,{dead_all},{all},{dead_all / all}")
+    for circle, (dead, all, _) in mortality_data.items():
+        if isinstance(circle, int):
+            circle = f"{circle}/{N_CIRCLES}"
+        filelines.append(f"{circle},{dead},{all},{dead / all}")
     filetext = "\n".join(filelines)
     if not args.yes:
         print(filetext)
@@ -349,9 +375,9 @@ if __name__ == "__main__":
     for i in range(len(tb_contours)):
         cv.drawContours(img, tb_contours, i, tb_color, thickness * 2 // 3, cv.LINE_AA)
 
-    for frac in range(1, num_circles + 1):
+    for frac in range(1, N_CIRCLES + 1):
         cv.circle(
-            img, center, int(r / num_circles * frac), ring_color, thickness, cv.LINE_AA
+            img, center, int(r / N_CIRCLES * frac), ring_color, thickness, cv.LINE_AA
         )
     cv.circle(img, center, int(r / 100), ring_color, cv.FILLED, cv.LINE_AA)
     cv.putText(
@@ -371,13 +397,22 @@ if __name__ == "__main__":
         plt.axis("off")
         plt.show()
 
-    # save segmented image and mortality data
-    segmentation_folder = path.parent / "segmented"
+    # save segmented image, mortality data and masks
+    segmentation_folder = path.parent / args.segmentation_folder
     segmentation_folder.mkdir(exist_ok=True)
     new_path = segmentation_folder / f"{path.stem}-segmented-at-{rot}{path.suffix}"
     cv.imwrite(new_path, img)
-    mortality_folder = path.parent / "mortality"
+
+    mortality_folder = path.parent / args.mortality_folder
     mortality_folder.mkdir(exist_ok=True)
     new_path = mortality_folder / f"{path.stem}-segmented-at-{rot}.csv"
     with open(new_path, "w") as file:
         file.writelines(filetext)
+
+    if args.save_masks:
+        mask_folder = path.parent / args.mask_folder
+        mask_folder.mkdir(exist_ok=True)
+        for circle in args.save_masks:
+            mask = mortality_data[circle if circle == "whole" else int(circle)][2]
+            new_path = mask_folder / f"{path.stem}-mask-{circle}-at-{rot}{path.suffix}"
+            cv.imwrite(new_path, mask)

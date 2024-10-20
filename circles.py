@@ -6,6 +6,8 @@ from warnings import warn
 import cv2 as cv
 import numpy as np
 
+N_CIRCLES = 5
+
 
 def calculate_enclosing_circle(
     img: np.ndarray, gray_img: Optional[np.ndarray] = None
@@ -57,14 +59,13 @@ def calculate_enclosing_circle(
 
 
 if __name__ == "__main__":
-    max_circles = 5
     parser = argparse.ArgumentParser(
         description="Extract circles from corneal image",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("img", type=str, help="Filepath of image")
     parser.add_argument(
-        "circle", type=int, choices=range(1, max_circles + 1), help="Circle to extract"
+        "circle", type=int, choices=range(1, N_CIRCLES + 1), help="Circle to extract"
     )
     args = parser.parse_args()
 
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     # extract the image from the specified enclosing circle
     n = args.circle
     mask = np.empty(img.shape[:2], np.uint8)
-    cv.circle(mask, center, int(r / max_circles * n), 255, cv.FILLED)
+    cv.circle(mask, center, int(r / N_CIRCLES * n), 255, cv.FILLED)
     subimg = cv.bitwise_and(img, img, mask=mask)
 
     # save subimage to disk
