@@ -63,14 +63,18 @@ if __name__ == "__main__":
         description="Extract circles from corneal image",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("img", type=str, help="Filepath of image")
+    parser.add_argument("img", type=Path, help="Filepath of image")
     parser.add_argument(
-        "circle", type=int, choices=range(1, N_CIRCLES + 1), help="Circle to extract"
+        "circles",
+        choices=list(map(str, range(1, N_CIRCLES + 1))),
+        type=str,
+        nargs="+",
+        help="Circles to extract",
     )
     args = parser.parse_args()
 
     # read image
-    path = Path(args.img)
+    path = args.img
     img = cv.imread(path, cv.IMREAD_UNCHANGED)  # BGR or BGRA
     if img is None:
         print("Could not open or find the image:", path)
@@ -80,14 +84,17 @@ if __name__ == "__main__":
     center, r = calculate_enclosing_circle(img)
     center = center.astype(int)
 
-    # extract the image from the specified enclosing circle
-    n = args.circle
-    mask = np.empty(img.shape[:2], np.uint8)
-    cv.circle(mask, center, int(r / N_CIRCLES * n), 255, cv.FILLED)
-    subimg = cv.bitwise_and(img, img, mask=mask)
+    # extract the image from the specified enclosing circles
+    subimgs = []
+    for n in map(int, args.circles):
+        mask = np.empty(img.shape[:2], np.uint8)
+        cv.circle(mask, center, int(r / N_CIRCLES * n), 255, cv.FILLED)
+        subimg = cv.bitwise_and(img, img, mask=mask)
+        subimgs.append(subimg)
 
-    # save subimage to disk
+    # save subimages to disk
     circle_folder = path.parent / "circles"
     circle_folder.mkdir(exist_ok=True)
-    new_path = circle_folder / f"{path.stem}-circle-{n}{path.suffix}"
-    cv.imwrite(new_path, subimg)
+    for n, subimg in zip(args.circles, subimgs):
+        new_path = circle_folder / f"{path.stem}-circle-{n}{path.suffix}"
+        cv.imwrite(new_path, subimg)
