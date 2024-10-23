@@ -37,15 +37,15 @@ if __name__ == "__main__":
         description="Compares segmentation results with ground truth",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("pred", type=Path, help="Predicted segmentation filepath")
     parser.add_argument("targ", type=Path, help="Target segmentation filepath")
+    parser.add_argument("pred", type=Path, help="Predicted segmentation filepath")
     args = parser.parse_args()
 
     # read images
-    pred_path = args.pred
-    pred = cv.imread(pred_path, cv.IMREAD_GRAYSCALE)
     targ_path = args.targ
     targ = cv.imread(targ_path, cv.IMREAD_GRAYSCALE)
+    pred_path = args.pred
+    pred = cv.imread(pred_path, cv.IMREAD_GRAYSCALE)
     for img, path in ((pred, pred_path), (targ, targ_path)):
         if img is None:
             print("Could not open or find the image:", path)
@@ -53,10 +53,10 @@ if __name__ == "__main__":
 
     # adjust classes - some segmentations are white-in-black, others are black-in-white
     norm = 100 / min(pred.shape)
-    pred = adjust_masks(pred)
     targ = adjust_masks(targ)
-    fpred = pred.flatten()
+    pred = adjust_masks(pred)
     ftarg = targ.flatten()
+    fpred = pred.flatten()
 
     # define the metrics to compute
     precision, recall, f1, _ = sklm.precision_recall_fscore_support(
