@@ -54,7 +54,7 @@ def calculate_enclosing_circle(
     M = cv.moments(cnt)
     area = M["m00"]  # r = np.sqrt(area / np.pi) is not robust to outliers
     center = np.asarray((M["m10"], M["m01"]), dtype=float) / area
-    r = np.mean([np.linalg.norm(p - center) for p in cnt.squeeze(1)])
+    r = np.linalg.norm(cnt.squeeze(1) - center, axis=1).mean()
     return center, r
 
 

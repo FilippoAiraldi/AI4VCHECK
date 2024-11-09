@@ -294,7 +294,7 @@ if __name__ == "__main__":
         "--save-masks",
         choices=[*map(str, range(1, N_CIRCLES + 1)), "whole"],
         default=[],
-        nargs="+",
+        nargs="*",
         type=str,
         help="Circles (or whole image) for which to save the masks",
     )
