@@ -97,6 +97,7 @@ def find_contours_TB_pixels(
         (9, 9),  # NOTE: tunable (!) - pairs of positive integers
         0,  # NOTE: tunable (!) - nonnegative float
     )
+    cv.imwrite("Figure Y (2).png", blurred_img)
     thresholded_img = cv.adaptiveThreshold(
         blurred_img,
         255,
@@ -129,6 +130,7 @@ def find_contours_TB_pixels(
     # plt.imshow(mask, cmap="gray")
     # plt.axis("off")
     # plt.show()
+    cv.imwrite("Figure Y (2).png", mask)
 
     # then, for each nonzero pixel compute the distance to the nearest zero pixel, and
     # use it to discern foreground, background and unknown pixels
@@ -139,6 +141,8 @@ def find_contours_TB_pixels(
         255,
         cv.THRESH_BINARY,
     )
+    # cv.normalize(distance, distance, 0, 255.0, cv.NORM_MINMAX)
+    cv.imwrite("Figure Y (3).png", distance)
     foreground = foreground.astype(np.uint8)
     background = cv.dilate(
         mask,
@@ -154,6 +158,7 @@ def find_contours_TB_pixels(
     # for ax in axs.flat:
     #     ax.set_axis_off()
     # plt.show()
+    cv.imwrite("Figure Y (4).png", foreground)
 
     # finally, apply the watershed algorithm with the foreground as seed. Before it, we
     # forcefully set the labels for all noncorneal pixels to be the same - this helps
@@ -170,6 +175,17 @@ def find_contours_TB_pixels(
     # plt.imshow(segmentation)
     # plt.axis("off")
     # plt.show()
+    # import matplotlib.pyplot as plt
+    # cmap = plt.get_cmap("twilight")
+    # cmapped_img = cmap((markers - markers.min()) / np.ptp(markers)) * 255
+    # cmapped_img[(markers == markers[0, 0]) | (markers == markers[1, 1])] = [0, 0, 0, 0]
+    # OR
+    cmapped_img = np.zeros((*img.shape[:2], 4), np.uint8)
+    rng = np.random.default_rng(0)
+    for marker in np.unique(markers):
+        if marker not in (-1, 0, 1):
+            cmapped_img[markers == marker] = [*rng.integers(0, 256, 3), 255]
+    cv.imwrite("Figure Y (5).png", cmapped_img)
 
     # now that the watershed segmentation is available, we need to extract the contours
     # (i.e., boundaries) of all the nonzero regions. We find the contours of the
@@ -193,6 +209,7 @@ def find_contours_TB_pixels(
     for i in range(len(tb_contours)):
         cv.drawContours(tb_positive_mask, tb_contours, i, 255, cv.FILLED)
     tb_positive_mask = cv.bitwise_and(tb_positive_mask, corneal_mask)
+    cv.imwrite("Figure Y (6).png", tb_positive_mask)
     # img[tb_positive_mask > 0] = (255, 0, 0, 255) if has_four_channels else (255, 0, 0)
     # plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
     # plt.axis("off")
