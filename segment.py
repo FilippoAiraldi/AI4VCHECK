@@ -46,7 +46,7 @@ def find_contours_TB_pixels(
     clahe: bool = False,
     adaptive_thres_size: int = 101,
     adaptive_thres_const: float = 3.0,
-) -> tuple[np.ndarray, np.ndarray, tuple[np.ndarray, ...]]:
+) -> tuple[np.ndarray, np.ndarray, tuple[np.ndarray, ...], np.ndarray]:
     """Finds the contours of the Trypan Blue-stained (TB) regions in the corneal image
     (with the cornea already segmented out) via the Watershed algorithm.
 
@@ -70,10 +70,11 @@ def find_contours_TB_pixels(
 
     Returns
     -------
-    corneal mask, and TB-positive mask and contours
+    corneal mask, and TB-positive mask, and contours + hierarchy
         The mask of the corneal pixeles (as an array), the TB-positive mask (as an
-        array) of the regions that are believed to be stained by the TB dye and the
-        watershed-segmented contours of these regions (as a tuple of arrays).
+        array) of the regions that are believed to be stained by the TB dye, the
+        watershed-segmented contours of these regions (as a tuple of arrays) and their
+        hierarchy.
     """
     # first of all, convert to grayscale and compute the mask of the cornea (i.e.,
     # separate pixels within the cornea from pixels outside of it)
@@ -196,25 +197,29 @@ def find_contours_TB_pixels(
         markers.astype(np.uint8), 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU
     )
 
-    # finally, find all the contours (hierarchy information is disregarded)
+    # finally, find all the contours
     corneal_contours_mask = cv.bitwise_and(contours_mask, corneal_mask)
-    tb_contours, _ = cv.findContours(
-        corneal_contours_mask, cv.RETR_LIST, cv.CHAIN_APPROX_NONE
+    tb_contours, tb_hierarchy = cv.findContours(
+        corneal_contours_mask, cv.RETR_TREE, cv.CHAIN_APPROX_NONE
     )
+    assert tb_hierarchy.shape[0] == 1, "more than one hierarchy found!"
 
     # create a mask by filling all found contours, thus highlighting all the pixels that
     # we believe to be positive to the TB stain. Just the make sure, set once again to
     # zero all the pixels that are outside the cornea
     tb_positive_mask = np.zeros(img.shape[:2], np.uint8)
     for i in range(len(tb_contours)):
-        cv.drawContours(tb_positive_mask, tb_contours, i, 255, cv.FILLED)
+        if tb_hierarchy[0, i, 3] == -1:
+            cv.drawContours(
+                tb_positive_mask, tb_contours, i, 255, cv.FILLED, hierarchy=tb_hierarchy, maxLevel=1
+            )
     tb_positive_mask = cv.bitwise_and(tb_positive_mask, corneal_mask)
     cv.imwrite("Figure Y (6).png", tb_positive_mask)
     # img[tb_positive_mask > 0] = (255, 0, 0, 255) if has_four_channels else (255, 0, 0)
     # plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
     # plt.axis("off")
     # plt.show()
-    return corneal_mask, tb_positive_mask, tb_contours
+    return corneal_mask, tb_positive_mask, tb_contours, tb_hierarchy
 
 
 def calculate_mortality_per_circle(
@@ -349,7 +354,7 @@ if __name__ == "__main__":
     gray_img = cv.cvtColor(
         img, cv.COLOR_BGRA2GRAY if img.shape[2] == 4 else cv.COLOR_BGR2GRAY
     )
-    corneal_mask, tb_positive_mask, tb_contours = find_contours_TB_pixels(
+    corneal_mask, tb_positive_mask, tb_contours, tb_hierarchy = find_contours_TB_pixels(
         img,
         gray_img,
         args.clahe,
@@ -390,7 +395,16 @@ if __name__ == "__main__":
         ring_color.append(255)
     thickness = min(img.shape[:2]) * 3 // 1000
     for i in range(len(tb_contours)):
-        cv.drawContours(img, tb_contours, i, tb_color, thickness * 2 // 3, cv.LINE_AA)
+        if tb_hierarchy[0, i, 3] == -1:
+            cv.drawContours(
+                img,
+                tb_contours,
+                i,
+                tb_color,
+                -thickness * 2 // 3,
+                cv.LINE_AA,
+                hierarchy=tb_hierarchy,
+            )
 
     for frac in range(1, N_CIRCLES + 1):
         cv.circle(
