@@ -219,17 +219,59 @@ def find_contours_TB_pixels(
     # plt.imshow(cv.cvtColor(img, cv.COLOR_BGRA2RGBA))
     # plt.axis("off")
     # plt.show()
-    return corneal_mask, tb_positive_mask, tb_contours, tb_hierarchy
+    return corneal_mask, tb_positive_mask, tb_contours
 
 
-def calculate_mortality_per_circle(
+def calculate_enclosing_ellipse(
+    img: np.ndarray, gray_img: Optional[np.ndarray] = None
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Computes the circle that encloses the corneal segmented image.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        A 3- or 4-channel image containing the cornea. If the image has 4 channels,
+        areas outside of the cornea should be transparent. If the image has 3 channels,
+        areas outside of the cornea should be black.
+    gray_img : np.ndarray, optional
+        The grayscale version of the image. If not provided, it is computed by
+        converting the image to grayscale.
+
+    Returns
+    -------
+    center, diameters, and angle
+        The center, diameters and rotation angle (deg) of the ellipse that best
+        approximates the corneal segmented image.
+    """
+    has_four_channels = img.shape[2] == 4
+    if has_four_channels:
+        _, thresholded_img = cv.threshold(img[..., 3], 0, 255, cv.THRESH_BINARY)
+    else:
+        if gray_img is None:
+            gray_img = cv.cvtColor(cv.COLOR_BGR2GRAY)
+        blurred_image = cv.GaussianBlur(gray_img, (71, 71), 11)
+        _, thresholded_img = cv.threshold(
+            blurred_image, 50, 255, cv.THRESH_BINARY | cv.THRESH_OTSU
+        )
+
+    cnts, _ = cv.findContours(thresholded_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    assert len(cnts) == 1, "Expected only one contour."
+    cnt = cnts[0]
+
+    # fit best ellipse to the contour
+    ellipse = cv.fitEllipse(cnt)  # (center, (major diam., minor diam.), clock. angle)
+    return np.asarray(ellipse[0]), np.asarray(ellipse[1]), ellipse[2]
+
+
+def calculate_mortality_per_ellipse(
     corneal_mask: np.ndarray,
     tb_positive_mask: np.ndarray,
     center: np.ndarray,
-    radius: int,
-) -> tuple[int, int, np.ndarray]:
-    """Calculates the mortality of the cells within the circle defined by the given
-    center and radius.
+    diameters: np.ndarray,
+    angle: float,
+) -> tuple[int, int]:
+    """Calculates the mortality of the cells within the ellipse defined by the given
+    center, diameters and rotation angle.
 
     Parameters
     ----------
@@ -238,20 +280,22 @@ def calculate_mortality_per_circle(
     tb_positive_mask : np.ndarray
         The mask of the TB-positive corneal  pixels in the original image.
     center : 2d array of ints
-        center of the circle for which the mortality is calculated.
-    radius : float
-        radius of the circle for which the mortality is calculated.
+        Center of the ellipse for which the mortality is calculated.
+    diameters : float
+        Diameters of the ellipse for which the mortality is calculated.
+    angle : float
+        Rotation angle of the ellipse for which the mortality is calculated.
 
     Returns
     -------
-    tuple of 2 int and rray
-        The mortality of the cells within the specified circle as the number of
+    tuple of 2 int
+        The mortality of the cells within the specified ellipse as the number of
         TB-positive pixels and the number of all pixels. The mortality can be calculated
         as the ratio of the two. The third returned element is the mask of the
         TB-positive pixels in that circle.
     """
     mask = np.zeros(img.shape[:2], np.uint8)
-    cv.circle(mask, center, radius, 255, cv.FILLED)
+    cv.ellipse(mask, (center, diameters, angle), 255, cv.FILLED)
     corneal_submask = cv.bitwise_and(mask, corneal_mask)
     tb_positive_submask = cv.bitwise_and(mask, tb_positive_mask)
     dead = cv.countNonZero(tb_positive_submask)
@@ -362,27 +406,22 @@ if __name__ == "__main__":
         args.adaptive_thres_const,
     )
 
-    # calculate mortality per enclosing circles
-    center, r = calculate_enclosing_circle(img, gray_img)
-    center = center.astype(int)
-    mortality_data = {
-        frac: calculate_mortality_per_circle(
-            corneal_mask, tb_positive_mask, center, int(r / N_CIRCLES * frac)
+    # calculate mortality per enclosing ellipses
+    num_steps = 5
+    center, diameters, angle = calculate_enclosing_ellipse(img, gray_img)
+    mortalities = [
+        calculate_mortality_per_ellipse(
+            corneal_mask, tb_positive_mask, center, diameters / num_steps * frac, angle
         )
-        for frac in range(1, N_CIRCLES + 1)
-    }
-    mortality_data["whole"] = (
-        cv.countNonZero(tb_positive_mask),
-        cv.countNonZero(corneal_mask),
-        tb_positive_mask,
-    )
+        for frac in range(1, num_steps + 1)
+    ]
 
     # print mortality data
     filelines = ["ring,dead,all,mortality"]
-    for circle, (dead, all, _) in mortality_data.items():
-        if isinstance(circle, int):
-            circle = f"{circle}/{N_CIRCLES}"
-        filelines.append(f"{circle},{dead},{all},{dead / all}")
+    for i, (dead, all) in enumerate(mortalities, start=1):
+        filelines.append(f"{i}/{num_steps},{dead},{all},{dead / all}")
+    dead_all, all = cv.countNonZero(tb_positive_mask), cv.countNonZero(corneal_mask)
+    filelines.append(f"whole,{dead_all},{all},{dead_all / all}")
     filetext = "\n".join(filelines)
     if not args.yes:
         print(filetext)
@@ -406,15 +445,26 @@ if __name__ == "__main__":
                 hierarchy=tb_hierarchy,
             )
 
-    for frac in range(1, N_CIRCLES + 1):
-        cv.circle(
-            img, center, int(r / N_CIRCLES * frac), ring_color, thickness, cv.LINE_AA
+    for frac in range(1, num_steps + 1):
+        cv.ellipse(
+            img,
+            (center, diameters / num_steps * frac, angle),
+            ring_color,
+            thickness,
+            cv.LINE_AA,
         )
-    cv.circle(img, center, int(r / 100), ring_color, cv.FILLED, cv.LINE_AA)
+    cv.circle(
+        img,
+        center.astype(int),
+        int(diameters.mean() / 100),
+        ring_color,
+        cv.FILLED,
+        cv.LINE_AA,
+    )
     cv.putText(
         img,
         "center",
-        np.subtract(center, (r / 10, r / 20)).astype(int),
+        np.subtract(center, (diameters[0] / 10, diameters[1] / 20)).astype(int),
         cv.FONT_HERSHEY_SIMPLEX,
         thickness * 0.5,
         ring_color,
